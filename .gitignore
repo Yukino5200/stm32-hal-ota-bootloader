@@ -1,0 +1,26 @@
+# 构建产物
+build/
+cmake-build-*/
+cmake-build-debug/
+cmake-build-release/
+
+# IDE
+.idea/
+.vscode/
+
+# 编译 / 调试产物
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.su
+*.swp
+*~
+
+# CMSIS 中用不到的大件
+Drivers/CMSIS/Lib/
+Drivers/CMSIS/DSP/
+app/Drivers/CMSIS/Lib/
+app/Drivers/CMSIS/DSP/
