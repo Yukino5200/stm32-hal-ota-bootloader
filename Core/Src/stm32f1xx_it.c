@@ -223,38 +223,38 @@ void USART1_IRQHandler(void)
 
   // 检测串口空闲中断
   if(__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET)
-  {
-    __HAL_UART_CLEAR_IDLEFLAG(&huart1); // 清除空闲中断标志
+  {                           
+    __HAL_UART_CLEAR_IDLEFLAG(&huart1); // 清除空闲中断标志（下面置起的，用于下一次）
 
     uint16_t recv_len;
-    // 计算本次实际接收字节数：DMA预设总长度 - 未被占用空位
+    // 计算本次实际接收字节数：DMA预设总长度 - 未被占用空位（收一次货，放一个隔间，传送带dma运行一次，所以可以用dma来计算本次货的字节数）
     recv_len = (U1_RX_MAX + 1) - __HAL_DMA_GET_COUNTER(huart1.hdmarx);
 
     // 累计接收字节数，标记当前数据包的结束地址
     U1CB.URxCounter += recv_len;
-    U1CB.URxDataIN->end = &U1_RxBuff[U1CB.URxCounter - 1];
+    U1CB.URxDataIN->end = &U1_RxBuff[U1CB.URxCounter - 1];  // 记录收货员收获的结束位置
 
     // 入队指针后移，到达队列尾部则回绕到第一个缓冲区
     U1CB.URxDataIN++;
-    if(U1CB.URxDataIN == U1CB.URxDataEND)   // 如果已经是最后一个缓冲区，则回绕到第一个缓冲区
+    if(U1CB.URxDataIN == U1CB.URxDataEND)   // 如果收货员到了最后一个隔间
     {
-      U1CB.URxDataIN = &U1CB.URxDataPtr[0];
+      U1CB.URxDataIN = &U1CB.URxDataPtr[0]; // 收获员回到第一个隔间
     }
 
     // 计算下一包的起始地址：剩余空间足够则顺延，否则回绕到缓冲区开头
-    if((U1_RX_SIZE - U1CB.URxCounter) >= U1_RX_MAX)       // 缓冲区总大小 - 已接收字节数 >= 最大接收字节数
+    if((U1_RX_SIZE - U1CB.URxCounter) >= U1_RX_MAX)        // 如果仓库剩余的字节数大于一包的字节数
     {
-      U1CB.URxDataIN->start = &U1_RxBuff[U1CB.URxCounter]; // 标记下一包的起始地址
+      U1CB.URxDataIN->start = &U1_RxBuff[U1CB.URxCounter]; // 标记收获员在该隔间的起始收字节位置
     }
-    else
+    else                                                   // 如果仓库剩余的字节数不满一包的字节数
     {
-      U1CB.URxDataIN->start = U1_RxBuff;                   // 指针指向数组起始位置
-      U1CB.URxCounter = 0;
+      U1CB.URxDataIN->start = U1_RxBuff;                   // 收获员回到仓库起始收获位置
+      U1CB.URxCounter = 0;                                 // 收获数清零
     }
 
     // 停止当前DMA，重新配置地址和长度，启动下一次接收
     HAL_UART_DMAStop(&huart1);
-    HAL_UART_Receive_DMA(&huart1, U1CB.URxDataIN->start, U1_RX_MAX + 1);
+    HAL_UART_Receive_DMA(&huart1, U1CB.URxDataIN->start, U1_RX_MAX + 1);  // 从收获员起始收获位置开始使用传送带
   }
 
   /* USER CODE END USART1_IRQn 0 */

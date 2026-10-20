@@ -1,22 +1,22 @@
 //
 // Created by lenovo on 2026/10/10.
 //
-#include "AT24C02.h"
+#include "M24C02.h"
 #include "main.h"
 #include "MyI2C.h"
 
 /**
- * @brief  AT24C02写入1个字节
+ * @brief  M24C02写入1个字节
  * @param  addr: EEPROM内部地址 0~255
  * @param  wdata: 需要写入的字节数据
  * @retval 0:收到应答成功  1：无应答，通信失败
  */
-uint8_t AT24C02_WriteByte(uint8_t addr, uint8_t wdata)
+uint8_t M24C02_WriteByte(uint8_t addr, uint8_t wdata)
 {
     uint8_t ack;
 
     MyI2C_Start();                      //1、发起起始信号
-    MyI2C_SendByte(AT24C02_WADDR);      //2、发送设备写地址
+    MyI2C_SendByte(M24C02_WADDR);      //2、发送设备写地址
     ack = MyI2C_ReceiveAck();            //等待从机应答
     if(ack != 0)                         //没有应答直接退出
     {
@@ -48,19 +48,19 @@ uint8_t AT24C02_WriteByte(uint8_t addr, uint8_t wdata)
 }
 
 /**
- * @brief  AT24C02页写入，一页最多16字节
+ * @brief  M24C02页写入，一页最多16字节
  * @param  addr: EEPROM起始内部地址
  * @param  wdata: 待写入数据缓冲区指针
  * @retval 0成功；1设备地址无应答；2存储器地址无应答；3+i 第i个数据发送的时候应答失败
  * @attention !!!起始地址不要跨页；写完之后内部烧写需要延时5ms
  */
-uint8_t AT24C02_WritePage(uint8_t addr, uint8_t *wdata)
+uint8_t M24C02_WritePage(uint8_t addr, uint8_t *wdata)
 {
     uint8_t i;
     uint8_t ack;
 
     MyI2C_Start();
-    MyI2C_SendByte(AT24C02_WADDR);
+    MyI2C_SendByte(M24C02_WADDR);
     ack = MyI2C_ReceiveAck();
     if(ack != 0)
     {
@@ -94,19 +94,19 @@ uint8_t AT24C02_WritePage(uint8_t addr, uint8_t *wdata)
 }
 
 /**
- * @brief AT24C02连续多字节读取
+ * @brief M24C02连续多字节读取
  * @param addr: EEPROM内部起始地址
  * @param rdata: 接收数据缓冲区指针
  * @param datalen: 需要读取多少字节(1~256)
  * @retval 0成功；1写设备地址失败；2写内部地址失败；3读设备地址应答失败
  */
-uint8_t AT24C02_ReadData(uint8_t addr, uint8_t *rdata, uint16_t datalen)
+uint8_t M24C02_ReadData(uint8_t addr, uint8_t *rdata, uint16_t datalen)
 {
     uint8_t i;
     uint8_t ack;
 
     MyI2C_Start();
-    MyI2C_SendByte(AT24C02_WADDR);
+    MyI2C_SendByte(M24C02_WADDR);
     ack = MyI2C_ReceiveAck();
     if(ack != 0)
     {
@@ -123,7 +123,7 @@ uint8_t AT24C02_ReadData(uint8_t addr, uint8_t *rdata, uint16_t datalen)
     }
 
     MyI2C_Start();                 // 重复起始信号！重要，不需要停止
-    MyI2C_SendByte(AT24C02_RADDR);
+    MyI2C_SendByte(M24C02_RADDR);
     ack = MyI2C_ReceiveAck();
     if(ack != 0)
     {

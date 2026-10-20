@@ -39,8 +39,11 @@ add_executable(${CMAKE_PROJECT_NAME}
         Core/Inc/MyI2C.h
         Core/Src/delay_us.c
         Core/Inc/delay_us.h
-        Core/Src/AT24C02.c
-        Core/Inc/AT24C02.h)
+        Core/Src/M24C02.c
+        Core/Inc/M24C02.h)
+
+# 产物重命名：A 区应用输出 OTA_APP.elf，避免与引导程序（上级目录的 OTA.elf）同名而烧错
+set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME "OTA_APP")
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)

@@ -8,15 +8,17 @@
 
 #include "main.h"
 #include "usart.h"
-#include "AT24C02.h"
+#include "M24C02.h"
 #include "fmc.h"
 #include "W25Q64.h"
+#include "tim.h"
+#include "spi.h"
 
 load_a load_A;      // 定义load_a类型的函数
 
 /**
  * @brief  Bootloader业务分支判断函数
- * @note   调用此函数前务必先调用AT24C02_ReadOTAInfo()，将AT24C02中OTA标记读取至RAM缓存OTA_Info
+ * @note   调用此函数前务必先调用M24C02_ReadOTAInfo()，将M24C02中OTA标记读取至RAM缓存OTA_Info
  * @param  无
  * @retval 无
  */
@@ -133,7 +135,7 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
         }
         else if ((datalen == 1) && (data[0] == '4'))
         {
-            AT24C02_ReadOTAInfo();
+            M24C02_ReadOTAInfo();
             u1_printf("版本号:%s\r\n", OTA_Info.OTA_version);
         }
         else if ((datalen == 1) && (data[0] == '5'))
@@ -156,7 +158,7 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
         {
             u1_printf("[8]清除OTA标志\r\n");
             OTA_Info.OTA_flag = 0;      /* ① 先清 RAM 里的标志 */
-            AT24C02_WriteOTAInfo();     /* ② 再整块写回 EEPROM（这样才真正生效） */
+            M24C02_WriteOTAInfo();     /* ② 再整块写回 EEPROM（这样才真正生效） */
         }
     }
 
@@ -170,7 +172,7 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
         {
             BootStaFlag &= ~IAP_XMODEM_C_FLAG;  // 清除本次接收完成标志
             UpDataA.XmodemCRC = Xmodem_CRC16(&data[3], 128);
-            if (UpDataA.XmodemCRC == (data[131] << 8) + data[132])
+            if (UpDataA.XmodemCRC == (data[131] << 8) + data[132])  // 第131号字节是CRC16位校验位的高8位，132是低8位
             {   // CRC校验通过
                 UpDataA.XmodemNum ++;
                 memcpy(&UpDataA.UpDatabuff[(UpDataA.XmodemNum - 1) % (STM32_PAGE_SIZE / 128) * 128], &data[3], 128);    // 将128字节固件拷贝至RAM页缓存
@@ -226,7 +228,7 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
                 u1_printf("向外部Flash下载程序完成\r\n");
                 BootStaFlag &= ~UPDATA_XMODEM_FLAG;
                 OTA_Info.Firelen[UpDataA.W25Q64_BlockNum] = UpDataA.XmodemNum * 128;   // 长度 = 包数 × 128 字节
-                AT24C02_WriteOTAInfo();
+                M24C02_WriteOTAInfo();
                 HAL_Delay(100);
             }
             else
@@ -309,7 +311,7 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
 
             if (fmt_ok)
             {
-                AT24C02_WriteOTAInfo();     /* 版本号已在 OTA_Info.OTA_version 里，整块写回 EEPROM */
+                M24C02_WriteOTAInfo();     /* 版本号已在 OTA_Info.OTA_version 里，整块写回 EEPROM */
                 u1_printf("\r\n版本号正确\r\n");
                 BootStaFlag &= ~SET_VERSION_FLAG;
             }
@@ -411,9 +413,10 @@ void LOAD_A(uint32_t addr)          // 调用时 addr = STM32_A_SADDR = 0x080050
 
     if((app_sp >= STM32_RAM_SADDR) && (app_sp <= STM32_RAM_EADDR))   // 栈顶必须落在 RAM 里
     {
-        MSR_SP(app_sp);                             // 设置SP
+        __disable_irq();                            // 先关全局中断：跳转窗口内不响应任何中断
+        BootLoader_Clear();                         // 再注销 B 区用过的外设（顺序：关中断 → 清外设 → 换栈 → 跳）
+        MSR_SP(app_sp);                             // 设置SP（ram的栈顶）
         load_A = (load_a)app_reset;
-        BootLoader_Clear();                         // 清除B区使用的复位外设
         load_A();                                   // 跳过去就不回来了
     }
     else
@@ -425,12 +428,43 @@ void LOAD_A(uint32_t addr)          // 调用时 addr = STM32_A_SADDR = 0x080050
 /**
  * @brief Bootloader跳转APP前，注销复位外设
  * @note 关闭串口、GPIO，把外设恢复成默认状态，防止残留外设干扰APP运行
+ *       跳转前必须做到三件事：① 关全局中断 ② 停 SysTick ③ 关并使能清挂起（NVIC）
+ *       否则跳转后到 APP 执行 SystemInit 之前的几微秒里，任何已使能且挂起的中断
+ *       都会用 B 区（旧）向量表进中断服务函数，操作尚未初始化的外设句柄。
+ *       注意：本函数关中断后不会重新打开，由 APP 在 main() 里 __enable_irq() 负责恢复。
  */
 void BootLoader_Clear(void)
 {
-    HAL_UART_DeInit(&huart1);
+    __disable_irq();                        /* ① 全局关中断（重复调用无害） */
+
+    HAL_SuspendTick();                      /* ② 停掉 HAL 的 1ms SysTick 中断 */
+    SysTick->CTRL = 0;                      /*    并清掉 SysTick 计数，避免 APP 启动时误入 */
+    SysTick->LOAD = 0;
+    SysTick->VAL  = 0;
+
+    HAL_NVIC_DisableIRQ(USART1_IRQn);       /* ③ 关使能 + 清挂起（DisableIRQ 不清 pending） */
+    NVIC_ClearPendingIRQ(USART1_IRQn);
+    HAL_NVIC_DisableIRQ(DMA1_Channel5_IRQn);
+    NVIC_ClearPendingIRQ(DMA1_Channel5_IRQn);
+
+    HAL_UART_DeInit(&huart1);               /* ④ 反初始化用过的外设（含 PA9/PA10、DMA、USART1 时钟） */
+    HAL_TIM_Base_Stop(&htim2);              /*    TIM2 只是计数，没有中断，停掉即可 */
+    HAL_SPI_DeInit(&hspi1);                 /*    SPI1 释放 PA4~PA7 */
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_All);
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_All);
+
+    /* ⑤ 跳转前把 TX(PA9) 固定在高电平（UART 空闲态）：
+       上面 DeInit 会把 PA9 释放成浮空输入，从这一刻到 App 初始化 USART 之间，
+       TX 线既不高也不低，串口接收端会锁到假帧上，等 App 真正发数据时要重新同步，
+       开头几个字节会被吞掉（实测 App 打印 "Hello World" 只收到 "lo World"）。
+       做法：先写 ODR=1，再切成推挽输出，避免切换瞬间拉出一个低电平毛刺。 */
+    GPIO_InitTypeDef gpio_tx = {0};
+    gpio_tx.Pin   = GPIO_PIN_9;
+    gpio_tx.Mode  = GPIO_MODE_OUTPUT_PP;
+    gpio_tx.Pull  = GPIO_NOPULL;
+    gpio_tx.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+    HAL_GPIO_Init(GPIOA, &gpio_tx);
 }
 
 /**

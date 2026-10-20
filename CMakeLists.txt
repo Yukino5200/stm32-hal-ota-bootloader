@@ -39,8 +39,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         Core/Inc/MyI2C.h
         Core/Src/delay_us.c
         Core/Inc/delay_us.h
-        Core/Src/AT24C02.c
-        Core/Inc/AT24C02.h
+        Core/Src/M24C02.c
+        Core/Inc/M24C02.h
         Core/Src/W25Q64.c
         Core/Inc/W25Q64.h
         Core/Src/fmc.c

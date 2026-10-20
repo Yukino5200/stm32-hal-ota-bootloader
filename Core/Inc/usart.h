@@ -38,29 +38,31 @@ extern "C" {
 extern UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN Private defines */
-#define U1_RX_SIZE 2048 // 接收缓冲区大小
-#define U1_TX_SIZE 2048 // 发送缓冲区大小
-#define U1_RX_MAX  256  // 接收缓冲区数组单块区域最大容量（用于DMA预设长度）
-#define NUM        10   // 接收缓冲区数组长度
+#define U1_RX_SIZE 2048   // 整块大仓库总大小：2048字节，U1_RxBuff[2048]
+#define U1_RX_MAX  256    // 单个隔间最多放256字节（DMA单次最大接收上限）
+#define NUM        10     // 一共划分 10 个隔间（10张卡片）
+#define U1_TX_SIZE 2048   // 发送缓冲区大小
 /* USER CODE END Private defines */
 
 void MX_USART1_UART_Init(void);
 
 /* USER CODE BEGIN Prototypes */
+// 【卡片：单个隔间的管控信息】
 typedef struct{
-  uint8_t *start;         // 接收缓冲区起始地址（初始化后固定，标记内存块首边界）
-  uint8_t *in;            // 写入位置指针（DMA/中断往这里写数据，每写1个字节向后移动）
-  uint8_t *out;           // 读取位置指针（应用层从这里读数据，每读1个字节向后移动）
-  uint8_t *end;           // 接收缓冲区结束地址（初始化后固定，标记内存块尾边界）
-}UCB_URxBuffptr;          // 单块接收缓冲区的控制块
+  uint8_t *start;  // 隔间起始地址，固定不变，这个隔间从内存哪里开始
+  uint8_t *in;     // 写入游标（DMA传送带往这里放货，写一个字节往后挪一次） 注：该串口收包流程没用到该参数
+  uint8_t *out;    // 读出游标（main分拣员从这里取货，读一个字节往后挪一次）注：该串口收包流程没用到该参数
+  uint8_t *end;    // 隔间结束地址，固定不变，不能写到这个地址外面
+}UCB_URxBuffptr;
 
+// 【驿站总管台账，全局总控制块】
 typedef struct{
-  uint16_t URxCounter;            // 待处理的完整数据包计数
-  UCB_URxBuffptr URxDataPtr[NUM]; // 接收缓冲区结构体数组，一共 NUM 块独立的接收缓存
-  UCB_URxBuffptr *URxDataIN;      // 入队指针：指向当前正在写入的缓冲区（DMA正在写这块）
-  UCB_URxBuffptr *URxDataOUT;     // 出队指针：指向当前待读取的缓冲区（应用层读这块）
-  UCB_URxBuffptr *URxDataEND;     // 队列尾标记：指向缓冲区数组的末尾，用来判断回绕
-}UCB_CB;                          // 多缓冲区环形队列的总控制块
+  uint16_t URxCounter;                  // 全局计数，记录累计收到多少包
+  UCB_URxBuffptr URxDataPtr[NUM];       // 10张卡片，10个隔间的信息全部存在这里
+  UCB_URxBuffptr *URxDataIN;            // 入队指针：DMA【收货员正在往哪一个隔间里收货】
+  UCB_URxBuffptr *URxDataOUT;           // 出队指针：main循环【分拣员正在处理哪一个隔间】
+  UCB_URxBuffptr *URxDataEND;           // 队列边界标记，判断10个隔间是不是走到末尾，用来环形绕回
+}UCB_CB;                                // 多缓冲区环形队列的总控制块
 
 extern UCB_CB U1CB;
 extern uint8_t U1_RxBuff[U1_RX_SIZE];

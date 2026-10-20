@@ -27,7 +27,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "delay_us.h"
-#include "AT24C02.h"
+#include "M24C02.h"
 #include "boot.h"
 #include "W25Q64.h"
 #include "fmc.h"
@@ -106,7 +106,7 @@ int main(void)
   HAL_TIM_Base_Start(&htim2);
 
   uint8_t i;
-  AT24C02_ReadOTAInfo();  // 读取OTA信息
+  M24C02_ReadOTAInfo();  // 读取OTA信息
   BootLoader_Brance();    // 根据OTA_FLAG判断是否更新OTA
 
 
@@ -117,15 +117,15 @@ int main(void)
   while (1)
   {
     /* --------------------------------------------------------------------------
-     *                          环形缓冲区处理串口接收数据
+     *                          环形缓冲区处理串口接收数据进行消费（分拣员处理货物）
      --------------------------------------------------------------------------*/
     if(U1CB.URxDataOUT != U1CB.URxDataIN)
     {
-      BootLoader_Event(U1CB.URxDataOUT->start,U1CB.URxDataOUT->end - U1CB.URxDataOUT->start + 1);
-      U1CB.URxDataOUT++;
-      if(U1CB.URxDataOUT == U1CB.URxDataEND)
+      BootLoader_Event(U1CB.URxDataOUT->start,U1CB.URxDataOUT->end - U1CB.URxDataOUT->start + 1); // 分拣员从分拣的起始位置，开始处理一个隔间的货物
+      U1CB.URxDataOUT++;  // 这一整个包的数据发完了，分拣员进入到下一个隔间，等待收货员发货
+      if(U1CB.URxDataOUT == U1CB.URxDataEND)    // 如果分拣员走到了最后一个隔间
       {
-        U1CB.URxDataOUT = &U1CB.URxDataPtr[0];
+        U1CB.URxDataOUT = &U1CB.URxDataPtr[0];  // 分拣员回到第一个隔间
       }
     }
 
@@ -171,7 +171,7 @@ int main(void)
         if (UpDataA.W25Q64_BlockNum == 0)
         {
           OTA_Info.OTA_flag = 0;
-          AT24C02_WriteOTAInfo(); // 把标记写入AT24C04 EEPROM，以便BootLoader上电后读取，防止掉电丢失
+          M24C02_WriteOTAInfo(); // 把标记写入M24C02 EEPROM，以便BootLoader上电后读取，防止掉电丢失
         }
         u1_printf("A区升级完成\r\n");
         // 升级完成，系统软复位，重启后Bootloader就会直接跳A区APP

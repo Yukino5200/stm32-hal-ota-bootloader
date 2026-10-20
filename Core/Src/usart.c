@@ -150,8 +150,8 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
  */
 void U1Rx_PtrInit(void)
 {
-  U1CB.URxDataIN = &U1CB.URxDataPtr[0];
-  U1CB.URxDataOUT = &U1CB.URxDataPtr[0];
+  U1CB.URxDataIN = &U1CB.URxDataPtr[0];     // 指定收货员去拿URxDataPtr[]卡片里的信息
+  U1CB.URxDataOUT = &U1CB.URxDataPtr[0];    // 指定分拣员去拿URxDataPtr[]卡片里的信息
   U1CB.URxDataEND = &U1CB.URxDataPtr[NUM - 1];
   U1CB.URxDataIN->start = U1_RxBuff;
   U1CB.URxCounter = 0;

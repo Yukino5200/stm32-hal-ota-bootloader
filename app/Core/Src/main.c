@@ -26,7 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "delay_us.h"
-#include "AT24C02.h"
+#include "M24C02.h"
 #include "MyI2C.h"
 /* USER CODE END Includes */
 
@@ -80,7 +80,8 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  __enable_irq();      /* BootLoader 跳转前关了全局中断（PRIMASK=1），这里负责重新打开： */
+                       /* 不打开的话 SysTick 不响应，HAL_Delay 会永久卡死，串口 DMA+IDLE 也收不到数据 */
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -98,11 +99,20 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim2);
   uint16_t i;
+
+  /* 首帧对齐：从 BootLoader 跳转过来后，串口线会空闲一段，
+     USB 转串口（CH340）会把这之后第一帧开头的几个字节吞掉（实测丢 "Hel"）。
+     先发 4 个 0x00 当"牺牲字节"，正文就不会被截断（NUL 在终端上不可见）。 */
+  {
+    uint8_t sync_bytes[4] = {0x00, 0x00, 0x00, 0x00};
+    HAL_UART_Transmit(&huart1, sync_bytes, sizeof(sync_bytes), 20);
+  }
+
   u1_printf("Hello World\r\n");
 
   // for (i = 0; i < 256; i ++)
   // {
-  //   AT24C02_WriteByte(i, i);
+  //   M24C02_WriteByte(i, i);
   //   delay_us(5);
   // }
 
@@ -111,10 +121,10 @@ int main(void)
   // 测试数据从地址16开始写
   // for (i = 1; i < 16; i ++)
   // {
-  //   AT24C02_WritePage(i*16, wbuff);
+  //   M24C02_WritePage(i*16, wbuff);
   //   delay_us(5);
   // }
-  // AT24C02_ReadData(0, rbuff, 256);
+  // M24C02_ReadData(0, rbuff, 256);
   //
   // for (i = 0; i < 256; i ++)
   // {
@@ -122,18 +132,18 @@ int main(void)
   // }
   // ===== 原本的程序结束 =====
 
-  // ===== 新加：EEPROM 页大小测试（AT24C02=8字节/页，M24C02=16字节/页）=====
+  // ===== 新加：EEPROM 页大小测试（M24C02=8字节/页，M24C02=16字节/页）=====
   // ① 地址16~47 逐字节写 0xFF（做干净底；逐字节写不受页大小影响）
   // ② 从地址16（8和16都页对齐）用一次页写连发16个互不相同的字节 0x10~0x1F
   // ③ 读回，只打印地址16~47
   // 判读：
-  //   地址16~23 = 18..1F 且 地址24~31 = FF  → 页=8，超出部分【回绕覆盖】本页开头（AT24C02）
+  //   地址16~23 = 18..1F 且 地址24~31 = FF  → 页=8，超出部分【回绕覆盖】本页开头（M24C02）
   //   地址16~31 = 10..1F                    → 页=16（M24C02）
   //   地址16~23 = 10..17 且 地址24~31 = FF  → 页=8，超出部分被【丢弃】
   // ★ 全程只碰地址16以后，不动地址0~15（OTA标志区）
   for (i = 0; i < 32; i ++)              // ① 干净底：地址16~47 = 0xFF
   {
-    AT24C02_WriteByte(16 + i, 0xFF);     // WriteByte 内部自带 5ms 等待
+    M24C02_WriteByte(16 + i, 0xFF);     // WriteByte 内部自带 5ms 等待
   }
 
   uint8_t test_w[16];
@@ -141,9 +151,9 @@ int main(void)
   {
     test_w[i] = 0x10 + i;
   }
-  AT24C02_WritePage(16, test_w);         // 一次连续写16字节
+  M24C02_WritePage(16, test_w);         // 一次连续写16字节
 
-  AT24C02_ReadData(0, rbuff, 256);       // ③ 整片读回
+  M24C02_ReadData(0, rbuff, 256);       // ③ 整片读回
 
   for (i = 16; i < 48; i ++)             // 只打印 16~47，32行看完
   {

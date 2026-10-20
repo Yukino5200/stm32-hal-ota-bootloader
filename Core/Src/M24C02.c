@@ -1,7 +1,7 @@
 //
 // Created by lenovo on 2026/10/10.
 //
-#include "AT24C02.h"
+#include "M24C02.h"
 
 #include "delay_us.h"
 #include "main.h"
@@ -9,17 +9,17 @@
 #include "string.h"
 
 /**
- * @brief  AT24C02写入1个字节
+ * @brief  M24C02写入1个字节
  * @param  addr: EEPROM内部地址 0~255
  * @param  wdata: 需要写入的字节数据
  * @retval 0:收到应答成功  1：无应答，通信失败
  */
-uint8_t AT24C02_WriteByte(uint8_t addr, uint8_t wdata)
+uint8_t M24C02_WriteByte(uint8_t addr, uint8_t wdata)
 {
     uint8_t ack;
 
     MyI2C_Start();                      //1、发起起始信号
-    MyI2C_SendByte(AT24C02_WADDR);      //2、发送设备写地址
+    MyI2C_SendByte(M24C02_WADDR);      //2、发送设备写地址
     ack = MyI2C_ReceiveAck();            //等待从机应答
     if(ack != 0)                         //没有应答直接退出
     {
@@ -51,19 +51,19 @@ uint8_t AT24C02_WriteByte(uint8_t addr, uint8_t wdata)
 }
 
 /**
- * @brief  AT24C02页写入，一页最多16个字节
+ * @brief  M24C02页写入，一页最多16个字节
  * @param  addr: EEPROM起始内部地址
  * @param  wdata: 待写入数据缓冲区指针
  * @retval 0成功；1设备地址无应答；2存储器地址无应答；3+i 第i个数据发送的时候应答失败
  * @attention !!!起始地址不要跨页；写完之后内部烧写需要延时5ms
  */
-uint8_t AT24C02_WritePage(uint8_t addr, uint8_t *wdata)
+uint8_t M24C02_WritePage(uint8_t addr, uint8_t *wdata)
 {
     uint8_t i;
     uint8_t ack;
 
     MyI2C_Start();
-    MyI2C_SendByte(AT24C02_WADDR);
+    MyI2C_SendByte(M24C02_WADDR);
     ack = MyI2C_ReceiveAck();
     if(ack != 0)
     {
@@ -97,19 +97,19 @@ uint8_t AT24C02_WritePage(uint8_t addr, uint8_t *wdata)
 }
 
 /**
- * @brief AT24C02连续多字节读取，从AT24C02的addr地址开始读，读strlen个字节，放入rdata中
+ * @brief M24C02连续多字节读取，从M24C02的addr地址开始读，读strlen个字节，放入rdata中
  * @param addr: EEPROM内部起始地址
  * @param rdata: 接收数据缓冲区指针
  * @param datalen: 需要读取多少字节(1~256)
  * @retval 0成功；1写设备地址失败；2写内部地址失败；3读设备地址应答失败
  */
-uint8_t AT24C02_ReadData(uint8_t addr, uint8_t *rdata, uint16_t datalen)
+uint8_t M24C02_ReadData(uint8_t addr, uint8_t *rdata, uint16_t datalen)
 {
     uint8_t i;
     uint8_t ack;
 
     MyI2C_Start();
-    MyI2C_SendByte(AT24C02_WADDR);
+    MyI2C_SendByte(M24C02_WADDR);
     ack = MyI2C_ReceiveAck();
     if(ack != 0)
     {
@@ -126,7 +126,7 @@ uint8_t AT24C02_ReadData(uint8_t addr, uint8_t *rdata, uint16_t datalen)
     }
 
     MyI2C_Start();                 // 重复起始信号！重要，不需要停止
-    MyI2C_SendByte(AT24C02_RADDR);
+    MyI2C_SendByte(M24C02_RADDR);
     ack = MyI2C_ReceiveAck();
     if(ack != 0)
     {
@@ -149,19 +149,19 @@ uint8_t AT24C02_ReadData(uint8_t addr, uint8_t *rdata, uint16_t datalen)
 }
 
 /**
- * @brief  读取EEPROM(M24C02/AT24C02)内保存的OTA信息块
+ * @brief  读取EEPROM(M24C02/M24C02)内保存的OTA信息块
  * @note   读取前先清空结构体，避免旧脏数据干扰；数据从EEPROM地址0开始读取
  * @param  无
  * @retval 无
  */
-void AT24C02_ReadOTAInfo(void)
+void M24C02_ReadOTAInfo(void)
 {
     // 将OTA信息结构体整块内存预先清零，防止残留脏数据
     memset(&OTA_Info, 0, OTA_INFOCB_SIZE);
 
     // 从M24C02的0地址读取OTA_INFOCB_SIZE字节数据，存入OTA_Info结构体
     // (uint8_t *)强转：EEPROM读写函数是按字节操作，需要uint8_t类型缓冲区指针
-    AT24C02_ReadData(0, (uint8_t *)&OTA_Info, OTA_INFOCB_SIZE);
+    M24C02_ReadData(0, (uint8_t *)&OTA_Info, OTA_INFOCB_SIZE);
 }
 
 /**
@@ -171,13 +171,13 @@ void AT24C02_ReadOTAInfo(void)
  * @param  无
  * @retval 0：成功；1：写EEPROM失败（I2C无应答等）
  */
-uint8_t AT24C02_ClearOTAFlag(void)
+uint8_t M24C02_ClearOTAFlag(void)
 {
     uint8_t i;
 
     for(i = 0; i < sizeof(OTA_Info.OTA_flag); i++)
     {
-        if(AT24C02_WriteByte(i, 0x00) != 0)     // 内部自带5ms烧写等待
+        if(M24C02_WriteByte(i, 0x00) != 0)     // 内部自带5ms烧写等待
         {
             return 1;
         }
@@ -189,8 +189,8 @@ uint8_t AT24C02_ClearOTAFlag(void)
 }
 
 /**
- * @brief  将OTA信息结构体写入AT24C04 EEPROM
- * @note   AT24C04一页为16字节，此函数按页首地址分页写入
+ * @brief  将OTA信息结构体写入M24C02 EEPROM
+ * @note   M24C02 一页为 16 字节，此函数按页首地址分页写入
  *         每次从EEPROM页首(i*16)写入16字节，避免跨页回卷覆盖
  *         每写完一页延时5ms，等待EEPROM内部烧录完成
  * @attention 仅适用于OTA_INFOCB_SIZE是16整数倍的情况；
@@ -198,16 +198,16 @@ uint8_t AT24C02_ClearOTAFlag(void)
  * @param  无，全局结构体OTA_Info作为写入数据源
  * @retval 无
  */
-void AT24C02_WriteOTAInfo(void)
+void M24C02_WriteOTAInfo(void)
 {
     uint8_t i;
     uint8_t *wptr;
 
     wptr = (uint8_t *)&OTA_Info;
-    // AT24C04一页16字节，循环分页写入(这里共3页)
+    // M24C02 一页 16 字节，循环分页写入（80 字节 = 5 页）
     for(i=0; i<OTA_INFOCB_SIZE/16; i++)
     {
-        AT24C02_WritePage(i*16, wptr+i*16);
+        M24C02_WritePage(i*16, wptr+i*16);
         delay_us(5);
     }
 }
