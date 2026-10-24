@@ -28,6 +28,7 @@
 #include "delay_us.h"
 #include "M24C02.h"
 #include "MyI2C.h"
+#include <string.h>    /* memset：启动时清空串口接收缓冲区 */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -97,14 +98,21 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  /* 跳转过来时，U1_RxBuff 里可能残留 BootLoader 收到的旧字节，串口线上也可能有毛刺。
+     不清的话，一个毛刺就会触发 IDLE 中断，把残留数据当成"收到一包"打印出来
+     （实测现象：上电后多出一行 "本次接收了1字节数据" 和一个旧字符）。 */
+  memset(U1_RxBuff, 0, U1_RX_SIZE);      /* 接收缓冲区清零 */
+  U1Rx_PtrInit();                        /* 队列入/出指针复位 */
+  __HAL_UART_CLEAR_OREFLAG(&huart1);     /* 清溢出错误标志，避免旧状态干扰 */
+
   HAL_TIM_Base_Start(&htim2);
   uint16_t i;
 
   /* 首帧对齐：从 BootLoader 跳转过来后，串口线会空闲一段，
      USB 转串口（CH340）会把这之后第一帧开头的几个字节吞掉（实测丢 "Hel"）。
-     先发 4 个 0x00 当"牺牲字节"，正文就不会被截断（NUL 在终端上不可见）。 */
+     先发 4 个 '\r\n' 当"牺牲字节"，正文就不会被截断（只表现为多几个空行）。 */
   {
-    uint8_t sync_bytes[4] = {0x00, 0x00, 0x00, 0x00};
+    uint8_t sync_bytes[4] = {'\r', '\n', '\r', '\n'};
     HAL_UART_Transmit(&huart1, sync_bytes, sizeof(sync_bytes), 20);
   }
 
@@ -141,6 +149,8 @@ int main(void)
   //   地址16~31 = 10..1F                    → 页=16（M24C02）
   //   地址16~23 = 10..17 且 地址24~31 = FF  → 页=8，超出部分被【丢弃】
   // ★ 全程只碰地址16以后，不动地址0~15（OTA标志区）
+#if 0   /* 页大小测试已完成（M24C02 = 16 字节/页），保留代码便于以后复测。
+           注意：这段会写 EEPROM 0x10~0x2F，与 Firelen[3..11] 重叠，默认不执行。 */
   for (i = 0; i < 32; i ++)              // ① 干净底：地址16~47 = 0xFF
   {
     M24C02_WriteByte(16 + i, 0xFF);     // WriteByte 内部自带 5ms 等待
@@ -159,6 +169,7 @@ int main(void)
   {
     u1_printf("地址%d = %x\r\n", i, rbuff[i]);
   }
+#endif
   // ===== 新加代码结束 =====
   /* USER CODE END 2 */
 

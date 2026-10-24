@@ -130,30 +130,13 @@ int main(void)
     }
 
     /*--------------------------------------------------------------------------
-     * [2]串口IAP下载A区程序
-     * Xmodem传输握手：定时发送字符'C'，通知上位机准备发送固件
-     * 注意：掩码宏里面，1 在哪一位，if 就检测哪一位。所以下面if仅判断IAP_XMODEM_C_FLAG为1位的那个bit，两个标志位是否都为1，也就是检测BootStaFlag的那位是否为1
-     --------------------------------------------------------------------------*/
-    if (BootStaFlag & IAP_XMODEM_C_FLAG)
-    {
-      if (UpDataA.XmodemTimer >= 100)
-      {
-        u1_printf("C");
-        UpDataA.XmodemTimer = 0;
-      }
-      HAL_Delay(10);
-      UpDataA.XmodemTimer ++; // 10ms * 100 = 1s
-    }
-
-    /*--------------------------------------------------------------------------
-     * [1]擦除A区
      * A区固件升级任务：UPDATA_A_FLAG置位时，执行外部Flash(W25Q64)拷贝到片内Flash A区
      --------------------------------------------------------------------------*/
     if (BootStaFlag & UPDATA_A_FLAG)
     { // 更新A区
       u1_printf("长度%d字节\r\n", OTA_Info.Firelen[UpDataA.W25Q64_BlockNum]);
 
-      if ((OTA_Info.Firelen[UpDataA.W25Q64_BlockNum] % 4) == 0)
+      if ((OTA_Info.Firelen[UpDataA.W25Q64_BlockNum] % 4) == 0) // 4个字节的写入，正好是32位单片机要求
       { // 擦除单片机片内Flash的A区，准备写入新APP
         STM32_EraseFlash(STM32_A_START_PAGE, STM32_A_PAGE_NUM);   // 从A区起始页，擦除整个A区
         // 循环：写完整1024个字节的整页
@@ -173,18 +156,37 @@ int main(void)
           OTA_Info.OTA_flag = 0;
           M24C02_WriteOTAInfo(); // 把标记写入M24C02 EEPROM，以便BootLoader上电后读取，防止掉电丢失
         }
-        u1_printf("A区升级完成\r\n");
+        u1_printf("A区升级完成，2s后系统重启\r\n");
+        HAL_Delay(2000);
         // 升级完成，系统软复位，重启后Bootloader就会直接跳A区APP
         HAL_NVIC_SystemReset();
       }
       else
       {
-        u1_printf("长度错误\r\n");
+        u1_printf("长度错误，本次升级失败\r\n");
+        u1_printf("2s后显示BootLoader命令行\r\n");
         // 相当于把UPDATA_A_FLAG的二进制格式里为1的位取0:BootStaFlag = BootStaFlag & (取反~UPDATA_A_FLAG);由于BootStaFlag |= UPDATA_A_FLAG，所以这里是清零操作
         BootStaFlag &= ~UPDATA_A_FLAG;  //长度不对，清除内存里的升级标记，放弃本次升级
+        HAL_Delay(2000);
+        BootLoader_Info();
       }
     }
 
+    /*--------------------------------------------------------------------------
+     * [2]串口IAP下载A区程序
+     * Xmodem传输握手：定时发送字符'C'，通知上位机准备发送固件
+     * 注意：掩码宏里面，1 在哪一位，if 就检测哪一位。所以下面if仅判断IAP_XMODEM_C_FLAG为1位的那个bit，两个标志位是否都为1，也就是检测BootStaFlag的那位是否为1
+     --------------------------------------------------------------------------*/
+    if (BootStaFlag & IAP_XMODEM_C_FLAG)
+    {
+      if (UpDataA.XmodemTimer >= 100)
+      {
+        u1_printf("C");
+        UpDataA.XmodemTimer = 0;
+      }
+      HAL_Delay(10);
+      UpDataA.XmodemTimer ++; // 10ms * 100 = 1s
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

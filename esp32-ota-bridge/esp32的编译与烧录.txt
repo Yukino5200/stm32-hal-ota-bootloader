@@ -1,0 +1,9 @@
+clion的终端命令：
+查看esp32串口号 ：D:\DevEnv\ESP32\arduino-cli\arduino-cli.exe board list
+编译：
+D:\DevEnv\ESP32\arduino-cli\arduino-cli.exe compile --fqbn esp32:esp32:esp32 .\esp32_ota_bridge
+烧录：
+D:\DevEnv\ESP32\arduino-cli\arduino-cli.exe upload -p COM10 --fqbn esp32:esp32:esp32 .\esp32_ota_bridge
+
+网站：
+http://192.168.4.1

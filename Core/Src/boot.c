@@ -32,8 +32,8 @@ void BootLoader_Brance(void)
            u1_printf("OTA更新\r\n");
 
            /* TODO：真正的OTA升级流程写在这里（从W25Q64取升级包 → 擦写A区Flash → 校验） */
-           BootStaFlag |= UPDATA_A_FLAG;
-           UpDataA.W25Q64_BlockNum = 0;
+           BootStaFlag |= UPDATA_A_FLAG;    // 置标志：标记当前状态为【正在升级A区APP】
+           UpDataA.W25Q64_BlockNum = 0;     // 块索引归零，准备从头读W25Q64固件
        }
        /* 标记不匹配，走正常业务，准备跳转A分区App */
        else
@@ -58,16 +58,35 @@ void BootLoader_Brance(void)
  */
 uint8_t BootLoader_Enter(uint8_t timeout)
 {
-    u1_printf("%dms内输入小写字母 w ，以进入BootLoader命令行\r\n", timeout * 1000);
-    while (timeout --)
+    uint32_t start = HAL_GetTick();     // 记下开始时间，用于判断超时
+
+    u1_printf("\r\n%dms内输入小写字母 w ，以进入BootLoader命令行\r\n", timeout * 1000);
+
+    while ((HAL_GetTick() - start) < (uint32_t)timeout * 1000u)
     {
-        HAL_Delay(1000);
-        if (U1_RxBuff[0] == 'w')
+        /* 把"已经收到的包"逐个检查：任意位置出现 'w' 都算数。
+           原来的写法只看 U1_RxBuff[0]，一旦第 0 个字节被脏数据（Ctrl+V 的 0x16、
+           自动回车、驱动发的 XON 等）占住，后面发再多 'w' 也进不去。 */
+        while (U1CB.URxDataOUT != U1CB.URxDataIN)
         {
-            return 1;                                       // 进入BootLoader命令行
+            uint8_t *p = U1CB.URxDataOUT->start;
+            while (p <= U1CB.URxDataOUT->end)
+            {
+                if (*p++ == 'w')
+                {
+                    U1CB.URxDataOUT = U1CB.URxDataIN;   // 丢掉已收到的包，别让它们进命令行后被当成命令
+                    return 1;                           // 进入BootLoader命令行
+                }
+            }
+            U1CB.URxDataOUT++;                          // 这一包里没有 w，出队看下一包
+            if (U1CB.URxDataOUT == U1CB.URxDataEND)
+            {
+                U1CB.URxDataOUT = &U1CB.URxDataPtr[0];
+            }
         }
+        HAL_Delay(10);                                  // 10ms 轮询，比原来的 1 秒灵敏 100 倍
     }
-    return 0;                                               // 超时未输入w，不进入BootLoader命令行
+    return 0;                                           // 超时未输入w，不进入BootLoader命令行
 }
 
 /**
@@ -137,15 +156,18 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
         {
             M24C02_ReadOTAInfo();
             u1_printf("版本号:%s\r\n", OTA_Info.OTA_version);
+            u1_printf("2s后显示BootLoader命令行\r\n");
+            HAL_Delay(2000);
+            BootLoader_Info();
         }
         else if ((datalen == 1) && (data[0] == '5'))
         {
-            u1_printf("[5]向外部Flash下载程序，输入需要使用的块编号（1~9）\r\n");
+            u1_printf("[5]向外部Flash下载程序，输入需要使用的块编号（1~9），或按Esc退出\r\n");
             BootStaFlag |= UPDATA_TO_W25Q64_FLAG;   // 切到“等块号”模式，真正的下载在下面那个分支里发起
         }
         else if ((datalen == 1) && (data[0] == '6'))
         {
-            u1_printf("[6]使用外部Flash下载程序，输入需要使用的块编号（1~9）\r\n");
+            u1_printf("[6]使用外部Flash下载程序，输入需要使用的块编号（1~9），或按Esc退出\r\n");
             BootStaFlag |= USE_W25Q64_FLAG;         // 切到“等块号”模式，选好后置 UPDATA_A_FLAG 走升级流程
         }
         else if ((datalen == 1) && (data[0] == '7'))
@@ -167,7 +189,19 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
      --------------------------------------------------------------------------*/
     //========= 第一大块：收到Xmodem数据包(SOH帧 133字节)处理 =========
     else if (BootStaFlag & IAP_XMODEM_DATA_FALG)
-    {   // 判断：收到长度133字节、首字节SOH(0x01)标准Xmodem数据包
+    {
+        if ((datalen == 1) && (data[0] == 0x1B))
+        {
+            BootStaFlag &= ~(IAP_XMODEM_C_FLAG | IAP_XMODEM_DATA_FALG | UPDATA_XMODEM_FLAG);
+            UpDataA.XmodemNum = 0;
+            UpDataA.XmodemTimer = 0;
+            u1_printf("\r\n已取消本次下载（该块内容不完整，请勿用[6]从该块升级），2s后进入BootLoader命令行\r\n");
+            HAL_Delay(2000);
+            BootLoader_Info();
+            return;
+        }
+
+        // 判断：收到长度133字节、首字节SOH(0x01)标准Xmodem数据包
         if (datalen == 133 && data[0] == 0x01)
         {
             BootStaFlag &= ~IAP_XMODEM_C_FLAG;  // 清除本次接收完成标志
@@ -225,10 +259,13 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
             BootStaFlag &= ~IAP_XMODEM_DATA_FALG;   // 清除Xmodem数据接收标志位
             if (BootStaFlag & UPDATA_XMODEM_FLAG)
             {   // 本次是“下载进 W25Q64”：不重启，把这块固件的长度记进 EEPROM，然后回菜单等下一步
-                u1_printf("向外部Flash下载程序完成\r\n");
+                u1_printf("\r\n向外部Flash下载程序完成\r\n");
+                u1_printf("2s后显示BootLoader命令行\r\n");
                 BootStaFlag &= ~UPDATA_XMODEM_FLAG;
                 OTA_Info.Firelen[UpDataA.W25Q64_BlockNum] = UpDataA.XmodemNum * 128;   // 长度 = 包数 × 128 字节
                 M24C02_WriteOTAInfo();
+                HAL_Delay(2000);
+                BootLoader_Info();
                 HAL_Delay(100);
             }
             else
@@ -241,7 +278,7 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
     }
 
     /*--------------------------------------------------------------------------
-     *                          发生设置版本号事件，进行处理
+     *                          发生[3]设置OTA版本号事件，进行处理
      --------------------------------------------------------------------------*/
     else if (BootStaFlag & SET_VERSION_FLAG)
     {
@@ -250,10 +287,10 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
         {
             VerLen = 0;
             BootStaFlag &= ~SET_VERSION_FLAG;
-            u1_printf("\r\n已退出设置版本号\r\n");
+            u1_printf("\r\n已退出“设置版本号”\r\n");
+            BootLoader_Info();
             return;
         }
-
         /** 把本包里的字节逐个攒进 OTA_version：逐字符发/拆包发/整串发都能收全，
         * 回车换行直接跳过（不影响已攒内容）
         **/
@@ -312,24 +349,36 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
             if (fmt_ok)
             {
                 M24C02_WriteOTAInfo();     /* 版本号已在 OTA_Info.OTA_version 里，整块写回 EEPROM */
-                u1_printf("\r\n版本号正确\r\n");
+                u1_printf("\r\n版本号设置成功\r\n");
+                u1_printf("2s后显示BootLoader命令行\r\n");
                 BootStaFlag &= ~SET_VERSION_FLAG;
+                HAL_Delay(2000);
+                BootLoader_Info();
             }
             else
             {
-                u1_printf("\r\n版本号格式错误，请重试\r\n");
+                u1_printf("\r\n版本号格式错误，请重试，或按Esc退出设置版本号\r\n");
             }
             VerLen = 0;                     /* 复位计数，方便重新输入 */
         }
     }
 
     /*--------------------------------------------------------------------------
-     *                          发生命令5事件，进行处理
+     *                          发生[5]向外部Flash下载程序事件，进行处理
      --------------------------------------------------------------------------*/
     else if (BootStaFlag & UPDATA_TO_W25Q64_FLAG)
     {   // 【[5] 的第二步】等用户选块号：先把这块 W25Q64(64KB) 擦干净，再进入 Xmodem 接收
         if(datalen == 1)
         {
+            if (data[0] == 0x1B)    // 按Esc则退出该命令
+            {
+                BootStaFlag &= ~(UPDATA_TO_W25Q64_FLAG | IAP_XMODEM_C_FLAG | IAP_XMODEM_DATA_FALG | UPDATA_XMODEM_FLAG);
+                u1_printf("\r\n已退出“向外部Flash下载程序”\r\n");
+                u1_printf("2s后显示BootLoader命令行\r\n");
+                HAL_Delay(2000);
+                BootLoader_Info();
+                return;
+            }
             if ((data[0] >= '1') && (data[0] <= '9'))
             {
                 UpDataA.W25Q64_BlockNum = data[0] - '0';    // ASCII码'n'转换成数字n
@@ -344,23 +393,32 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
             }
             else
             {
-                u1_printf("编号错误，请重新输入\r\n");
+                u1_printf("编号错误，请重新输入，或按Esc退出\r\n");
             }
         }
         else
         {
-            u1_printf("数据长度错误，请重新输入\r\n");
+            u1_printf("数据长度错误，请重新输入，或按Esc退出\r\n");
         }
     }
 
     /*--------------------------------------------------------------------------
-     *                          发生命令6事件，进行处理
+     *                          发生[6]使用外部Flash下载程序事件，进行处理
      --------------------------------------------------------------------------*/
     else if (BootStaFlag & USE_W25Q64_FLAG)
     {   // 【[6] 的第二步】等用户选块号：选好后置 UPDATA_A_FLAG，
         // 主循环就会按 Firelen[块号] 从这块 W25Q64 里读固件 → 擦写 A 区 → 软复位 → 跳新 App
         if(datalen == 1)
         {
+            if (data[0] == 0x1B)    // 按Esc则退出该命令
+            {
+                BootStaFlag &= ~(USE_W25Q64_FLAG | UPDATA_A_FLAG);
+                u1_printf("\r\n已退出“使用外部Flash下载程序”\r\n");
+                u1_printf("2s后显示BootLoader命令行\r\n");
+                HAL_Delay(2000);
+                BootLoader_Info();
+                return;
+            }
             if ((data[0] >= '1') && (data[0] <= '9'))
             {
                 UpDataA.W25Q64_BlockNum = data[0] - '0';    // ASCII码'n'转换成数字n
@@ -369,12 +427,12 @@ void BootLoader_Event(uint8_t *data, uint16_t datalen)
             }
             else
             {
-                u1_printf("编号错误，请重新输入\r\n");
+                u1_printf("编号错误，请重新输入，或按Esc退出\r\n");
             }
         }
         else
         {
-            u1_printf("数据长度错误，请重新输入\r\n");
+            u1_printf("数据长度错误，请重新输入，或按Esc退出\r\n");
         }
     }
 }
