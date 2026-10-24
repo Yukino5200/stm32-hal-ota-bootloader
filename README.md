@@ -1,4 +1,4 @@
-# STM32 串口 OTA Bootloader（STM32F103 + HAL + Xmodem + W25Q64）
+# STM32 OTA远程升级 Bootloader（STM32F103 + HAL + Xmodem + W25Q64 + A/B分区）
 
 把 STM32F103C8T6 的 64KB 片内 Flash 分成两块：**B 区引导程序**（Bootloader）和 **A 区应用程序**。上电后，引导程序决定是"直接跳进 A 区干活"，还是"先把新固件搬进来再跳"。
 
